@@ -1,0 +1,9 @@
+version: '3.7'
+services:
+    app:
+      build: ./build
+      environment:
+          - NETWORK=$NETWORK
+          - CHAT=$CHAT
+          - KEY=$KEY
+      restart: unless-stopped

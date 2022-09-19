@@ -1,0 +1,13 @@
+url_moonbeam = "wss://moonbeam.api.onfinality.io/public-ws"
+members_moonbeam = {
+"member1": "0x0000000000000000000000000000000000000001",
+"member2": "0x0000000000000000000000000000000000000002"
+}
+collator_slots_moonbeam = 64
+
+url_moonriver = "wss://moonriver.api.onfinality.io/public-ws"
+members_moonriver = {
+"member1": "0x0000000000000000000000000000000000000001",
+"member2": "0x0000000000000000000000000000000000000002"
+}
+collator_slots_moonriver = 72
