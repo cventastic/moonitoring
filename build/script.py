@@ -1,5 +1,6 @@
 import time
 import copy
+import requests
 import os
 from substrateinterface import SubstrateInterface
 
@@ -8,6 +9,7 @@ from substrateinterface import SubstrateInterface
 # network = "moonriver"
 
 network = os.environ['NETWORK']
+
 
 if network == "moonbeam":
     from networks import members_moonbeam as members
@@ -98,49 +100,83 @@ def update_delegations(unbonds, all_collators):
     return all_collators_sorted
 
 
-while True:
-    all_collators = get_all_collators(conn)
-    current_round = get_round(conn)
-    tte = get_round_end(conn, current_round['first'], current_round['length'])
-    # get_round_end(conn)
-
-    # copy because reference is mutated in add_ranks function
-    ac = copy.deepcopy(all_collators)
-    all_collator_ranking = add_ranks(ac)
-    all_members_ranking = get_member_ranks(all_collator_ranking)
-
-    # calculate unbonds only for members
-    unbonds = get_scheduled_delegations(conn, all_members_ranking, current_round['current'])
-    # calculate unbonds for all collators
-    # unbonds = get_scheduled_delegations(conn, all_collator_ranking, current_round['current'])
-    updated_delegations = update_delegations(unbonds, all_collators)
-
-    ranking_after_unbond = add_ranks(updated_delegations)
-    ranking_after_unbond_member = get_member_ranks(ranking_after_unbond)
-
+def calculate_funds_needed(updated_delegations, collator_slots, all_members_ranking, ranking_after_unbond_member ):
     last_spot_amount = 0
+    readable_last_spot_amount = 0
+
     waiting_list_amount = 0
+    readable_waiting_list_amount = 0
 
     for i in updated_delegations:
         if i['rank'] == collator_slots:
-            last_spot_amount = round(i['amount'] / 1000000000000000000, 2)
+            readable_last_spot_amount = round(i['amount'] / 1000000000000000000, 2)
+            last_spot_amount = i['amount']
         if i['rank'] == collator_slots + 1:
-            waiting_list_amount = round(i['amount'] / 1000000000000000000, 2)
+            readable_waiting_list_amount = round(i['amount'] / 1000000000000000000, 2)
+            waiting_list_amount = i['amount']
 
-    print("---", "round minutes:", tte['minutes'], " seconds:", tte['seconds'], " blocks:", tte['blocks'], "---")
-    # print("After unbonds for members of cdf: ")
+    print("After unbonds for members of cdf: ")
     for i in all_members_ranking:
         for x in ranking_after_unbond_member:
             if x['member'] == i['member']:
-                rounded_amount_before = round(i['amount'] / 1000000000000000000, 2)
-                rounded_amount_after = round(x['amount'] / 1000000000000000000, 2)
-                # print(i['member'], "stake: ", rounded_amount_before, "rank: ", i['rank'], \
-                #          "stake_after_unbonds: ", rounded_amount_after, "rank_after_unbonds: ", x['rank'])
+                readable_rounded_amount_before = round(i['amount'] / 1000000000000000000, 2)
+                amount_before = i['amount']
+                readable_rounded_amount_after = round(x['amount'] / 1000000000000000000, 2)
+                amount_after = x['amount']
                 if last_spot_amount != 0 and waiting_list_amount != 0:
-                    if x['rank'] >= 50:
-                        distance_last_spot = rounded_amount_after - last_spot_amount
-                        distance_waiting_list = rounded_amount_after - waiting_list_amount
-                        print(x['member'], "rank: ", x['rank'])
-                        print("distance last collator: ", round(distance_last_spot, 2))
-                        print("distance to waiting list: ", round(distance_waiting_list, 2), "\n")
+                    readable_distance_last_spot = readable_rounded_amount_after - readable_last_spot_amount
+                    distance_last_spot = amount_after - last_spot_amount
+                    readable_distance_waiting_list = readable_rounded_amount_after - readable_waiting_list_amount
+                    distance_waiting_list = amount_after - waiting_list_amount
+                    print(x['member'], "rank: ", x['rank'], x['amount'])
+                    print("readable distance last collator: ", round(readable_distance_last_spot, 2))
+                    print("true distance last collator: ", distance_last_spot)
+                    print("readable distance to waiting list: ", round(readable_distance_waiting_list, 2))
+                    print("true distance to waiting list: ", distance_waiting_list)
+                    if x['rank'] > collator_slots:
+                        text = (str(x['member']) + "\n"
+                                "rank: " + str(x['rank']) + "\n" +
+                                "amount: " + str(readable_rounded_amount_after) + "\n" +
+                                "glmr needed to be rank " + str(collator_slots) + " with 1 glrm: " + "\n" +
+                                str((round(-readable_distance_last_spot, 2)) + 1)) + " (rounded)"
+                        telegram_bot_sendtext(text)
+                    print("\n")
 
+
+def telegram_bot_sendtext(bot_message):
+    bot_token = os.environ['KEY']
+    bot_chatID = os.environ['CHAT']
+    send_text = 'https://api.telegram.org/bot' + bot_token + '/sendMessage?chat_id=' + bot_chatID + '&parse_mode=Markdown&text=' + bot_message
+    response = requests.get(send_text)
+    return response.json()
+
+
+def main():
+    while True:
+        all_collators = get_all_collators(conn)
+        current_round = get_round(conn)
+        tte = get_round_end(conn, current_round['first'], current_round['length'])
+        print("---", "round minutes:", tte['minutes'], " seconds:", tte['seconds'], " blocks:", tte['blocks'], "---")
+
+        # get_round_end(conn)
+
+        # copy because reference is mutated in add_ranks function
+        ac = copy.deepcopy(all_collators)
+        all_collator_ranking = add_ranks(ac)
+        all_members_ranking = get_member_ranks(all_collator_ranking)
+
+        # calculate unbonds only for members
+        unbonds = get_scheduled_delegations(conn, all_members_ranking, current_round['current'])
+        # calculate unbonds for all collators
+        # unbonds = get_scheduled_delegations(conn, all_collator_ranking, current_round['current'])
+
+        updated_delegations = update_delegations(unbonds, all_collators)
+
+        ranking_after_unbond = add_ranks(updated_delegations)
+        ranking_after_unbond_member = get_member_ranks(ranking_after_unbond)
+
+        funds_needed = calculate_funds_needed(updated_delegations, collator_slots, all_members_ranking, ranking_after_unbond_member )
+
+
+if __name__ == "__main__":
+    main()
